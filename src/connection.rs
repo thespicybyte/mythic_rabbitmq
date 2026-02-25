@@ -4,15 +4,14 @@
 use std::time::Duration;
 
 use lapin::{
-    Channel, Connection, ConnectionProperties,
     options::{ExchangeDeclareOptions, QueueBindOptions, QueueDeclareOptions},
     types::FieldTable,
-    ExchangeKind,
+    Channel, Connection, ConnectionProperties, ExchangeKind,
 };
 use tracing::{error, info};
 
-use crate::constants::RETRY_CONNECT_DELAY_SECS;
 use crate::error::{MythicError, Result};
+use crate::{constants::RETRY_CONNECT_DELAY_SECS, environment::Environment};
 
 /// Configuration read from environment variables, mirroring how the Go library
 /// reads RABBITMQ_HOST and RABBITMQ_PASSWORD.
@@ -28,27 +27,20 @@ pub struct RabbitMQConfig {
 impl RabbitMQConfig {
     /// Build config from environment variables, with sensible defaults.
     pub fn from_env() -> Self {
+        let env = Environment::initialize();
         RabbitMQConfig {
-            host: std::env::var("RABBITMQ_HOST").unwrap_or_else(|_| "mythic_rabbitmq".to_string()),
-            port: std::env::var("RABBITMQ_PORT")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(5672),
-            username: std::env::var("RABBITMQ_USER").unwrap_or_else(|_| "mythic_user".to_string()),
-            password: std::env::var("RABBITMQ_PASSWORD")
-                .unwrap_or_else(|_| "mythic_password".to_string()),
-            vhost: std::env::var("RABBITMQ_VHOST").unwrap_or_else(|_| "mythic_vhost".to_string()),
+            host: env.rabbitmq_server,
+            port: env.rabbitmq_port,
+            username: env.rabbitmq_user,
+            password: env.rabbitmq_password,
+            vhost: env.rabbitmq_vhost,
         }
     }
 
     pub fn amqp_url(&self) -> String {
         format!(
             "amqp://{}:{}@{}:{}/{}",
-            self.username,
-            self.password,
-            self.host,
-            self.port,
-            self.vhost,
+            self.username, self.password, self.host, self.port, self.vhost,
         )
     }
 }
@@ -58,7 +50,10 @@ impl RabbitMQConfig {
 pub async fn connect_with_retry(config: &RabbitMQConfig) -> Connection {
     let url = config.amqp_url();
     loop {
-        info!("Connecting to RabbitMQ at {}:{}...", config.host, config.port);
+        info!(
+            "Connecting to RabbitMQ at {}:{}...",
+            config.host, config.port
+        );
         match Connection::connect(&url, ConnectionProperties::default()).await {
             Ok(conn) => {
                 info!("Connected to RabbitMQ successfully");

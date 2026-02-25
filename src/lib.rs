@@ -37,8 +37,9 @@
 //! }
 //! ```
 
-pub mod constants;
 pub mod connection;
+pub mod constants;
+mod environment;
 pub mod error;
 pub mod rpc;
 pub mod structs;
@@ -48,25 +49,23 @@ pub mod sync;
 pub use connection::RabbitMQConfig;
 pub use error::{MythicError, Result};
 pub use structs::{
-    C2ConfigCheckMessage, C2ConfigCheckMessageResponse,
-    C2GetIOCMessage, C2GetIOCMessageResponse,
-    C2GetRedirectorRuleMessage, C2GetRedirectorRuleMessageResponse,
-    C2HostFileMessage, C2HostFileMessageResponse,
-    C2OPSECMessage, C2OPSECMessageResponse,
-    C2Parameter, C2ParameterDictionary, C2ProfileDefinition,
-    C2SampleMessageMessage, C2SampleMessageResponse,
+    C2ConfigCheckMessage, C2ConfigCheckMessageResponse, C2GetIOCMessage, C2GetIOCMessageResponse,
+    C2GetRedirectorRuleMessage, C2GetRedirectorRuleMessageResponse, C2HostFileMessage,
+    C2HostFileMessageResponse, C2OPSECMessage, C2OPSECMessageResponse, C2Parameter,
+    C2ParameterDictionary, C2ProfileDefinition, C2SampleMessageMessage, C2SampleMessageResponse,
     C2SyncMessage, C2SyncMessageResponse, IOC,
 };
 
+use environment::Environment;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::{error, info};
 
 use constants::{
-    C2_RPC_CONFIG_CHECK_ROUTING_KEY, C2_RPC_GET_IOC_ROUTING_KEY,
+    get_routing_key, C2_RPC_CONFIG_CHECK_ROUTING_KEY, C2_RPC_GET_IOC_ROUTING_KEY,
     C2_RPC_HOST_FILE_ROUTING_KEY, C2_RPC_OPSEC_CHECK_ROUTING_KEY,
-    C2_RPC_REDIRECTOR_RULES_ROUTING_KEY,
-    C2_RPC_SAMPLE_MESSAGE_ROUTING_KEY, RETRY_CONNECT_DELAY_SECS, get_routing_key,
+    C2_RPC_REDIRECTOR_RULES_ROUTING_KEY, C2_RPC_SAMPLE_MESSAGE_ROUTING_KEY,
+    RETRY_CONNECT_DELAY_SECS,
 };
 pub use structs::MythicRPCC2UpdateStatusMessage;
 
@@ -78,7 +77,8 @@ pub type ConfigCheckHandler = fn(C2ConfigCheckMessage) -> C2ConfigCheckMessageRe
 pub type OpsecCheckHandler = fn(C2OPSECMessage) -> C2OPSECMessageResponse;
 pub type GetIocHandler = fn(C2GetIOCMessage) -> C2GetIOCMessageResponse;
 pub type SampleMessageHandler = fn(C2SampleMessageMessage) -> C2SampleMessageResponse;
-pub type RedirectorRulesHandler = fn(C2GetRedirectorRuleMessage) -> C2GetRedirectorRuleMessageResponse;
+pub type RedirectorRulesHandler =
+    fn(C2GetRedirectorRuleMessage) -> C2GetRedirectorRuleMessageResponse;
 pub type HostFileHandler = fn(C2HostFileMessage) -> C2HostFileMessageResponse;
 
 // ---------------------------------------------------------------------------
@@ -86,16 +86,11 @@ pub type HostFileHandler = fn(C2HostFileMessage) -> C2HostFileMessageResponse;
 // ---------------------------------------------------------------------------
 
 /// Builder for [`MythicC2Container`].
-#[derive(Default)]
 pub struct MythicC2ContainerBuilder {
     profile: Option<C2ProfileDefinition>,
     parameters: Vec<C2Parameter>,
     config: Option<RabbitMQConfig>,
-    /// Path to the server binary the container will launch on start_server RPC.
-    /// Mirrors ServerBinaryPath (json:"-") from the Go C2Profile struct.
     server_binary_path: Option<String>,
-    /// Working directory for the server process.
-    /// Mirrors ServerFolderPath (json:"-") from the Go C2Profile struct.
     server_folder_path: Option<String>,
     on_config_check: Option<ConfigCheckHandler>,
     on_opsec_check: Option<OpsecCheckHandler>,
@@ -103,6 +98,25 @@ pub struct MythicC2ContainerBuilder {
     on_sample_message: Option<SampleMessageHandler>,
     on_redirector_rules: Option<RedirectorRulesHandler>,
     on_host_file: Option<HostFileHandler>,
+}
+
+impl Default for MythicC2ContainerBuilder {
+    fn default() -> Self {
+        Environment::initialize();
+        Self {
+            profile: Default::default(),
+            parameters: Default::default(),
+            config: Default::default(),
+            server_binary_path: Default::default(),
+            server_folder_path: Default::default(),
+            on_config_check: Default::default(),
+            on_opsec_check: Default::default(),
+            on_get_ioc: Default::default(),
+            on_sample_message: Default::default(),
+            on_redirector_rules: Default::default(),
+            on_host_file: Default::default(),
+        }
+    }
 }
 
 impl MythicC2ContainerBuilder {
@@ -226,32 +240,41 @@ impl MythicC2Container {
         loop {
             let conn = connection::connect_with_retry(&config).await;
 
-            let sync_msg = sync::build_sync_message(
-                self.profile.clone(),
-                self.parameters.clone(),
-            );
+            let sync_msg = sync::build_sync_message(self.profile.clone(), self.parameters.clone());
 
             match sync::send_c2_sync(&conn, sync_msg).await {
                 Ok(()) => {
-                    info!("C2 profile '{}' synced. Auto-launching server binary...", c2_name);
+                    info!(
+                        "C2 profile '{}' synced. Auto-launching server binary...",
+                        c2_name
+                    );
 
                     // 2. Auto-launch the server binary immediately on startup.
                     let launched = rpc::launch_server(
                         &self.server_binary_path,
                         &self.server_folder_path,
                         Arc::clone(&server_process),
-                    ).await;
+                    )
+                    .await;
 
                     if launched.server_running {
                         info!("Server binary launched successfully for '{}'", c2_name);
                     } else {
-                        error!("Server binary failed to launch for '{}': {}", c2_name, launched.error);
+                        error!(
+                            "Server binary failed to launch for '{}': {}",
+                            c2_name, launched.error
+                        );
                     }
 
                     // 3. Tell Mythic the container is online, reflecting actual server state.
                     if let Err(e) = sync::send_c2_update_status(
-                        &conn, &c2_name, launched.server_running, &launched.error,
-                    ).await {
+                        &conn,
+                        &c2_name,
+                        launched.server_running,
+                        &launched.error,
+                    )
+                    .await
+                    {
                         error!("Failed to send initial status update: {}", e);
                         tokio::time::sleep(Duration::from_secs(RETRY_CONNECT_DELAY_SECS)).await;
                         continue;
@@ -278,7 +301,12 @@ impl MythicC2Container {
         }
     }
 
-    fn spawn_rpc_listeners(&self, c2_name: &str, config: RabbitMQConfig, server_process: rpc::ServerProcess) {
+    fn spawn_rpc_listeners(
+        &self,
+        c2_name: &str,
+        config: RabbitMQConfig,
+        server_process: rpc::ServerProcess,
+    ) {
         let config_check = self.on_config_check.unwrap_or(default_config_check);
         let opsec_check = self.on_opsec_check.unwrap_or(default_opsec_check);
         let get_ioc = self.on_get_ioc.unwrap_or(default_get_ioc);
@@ -331,7 +359,11 @@ impl MythicC2Container {
             self.server_folder_path.clone(),
             Arc::clone(&server_process),
         );
-        spawn_stop_server_listener(config.clone(), c2_name.to_string(), Arc::clone(&server_process));
+        spawn_stop_server_listener(
+            config.clone(),
+            c2_name.to_string(),
+            Arc::clone(&server_process),
+        );
 
         // resync: Mythic asks us to re-send the sync message
         let resync_profile = self.profile.clone();
@@ -339,7 +371,13 @@ impl MythicC2Container {
         let resync_config = config.clone();
         let resync_name = c2_name.to_string();
         tokio::spawn(async move {
-            rpc::run_resync_listener(resync_config, resync_name, resync_profile, resync_parameters).await;
+            rpc::run_resync_listener(
+                resync_config,
+                resync_name,
+                resync_profile,
+                resync_parameters,
+            )
+            .await;
         });
     }
 }
@@ -356,11 +394,16 @@ fn spawn_start_server_listener(
     server_process: rpc::ServerProcess,
 ) {
     tokio::spawn(async move {
-        rpc::run_start_server_listener(config, c2_name, binary_path, folder_path, server_process).await;
+        rpc::run_start_server_listener(config, c2_name, binary_path, folder_path, server_process)
+            .await;
     });
 }
 
-fn spawn_stop_server_listener(config: RabbitMQConfig, c2_name: String, server_process: rpc::ServerProcess) {
+fn spawn_stop_server_listener(
+    config: RabbitMQConfig,
+    c2_name: String,
+    server_process: rpc::ServerProcess,
+) {
     tokio::spawn(async move {
         rpc::run_stop_server_listener(config, c2_name, server_process).await;
     });
@@ -406,7 +449,9 @@ fn default_sample_message(_msg: C2SampleMessageMessage) -> C2SampleMessageRespon
     }
 }
 
-fn default_redirector_rules(_msg: C2GetRedirectorRuleMessage) -> C2GetRedirectorRuleMessageResponse {
+fn default_redirector_rules(
+    _msg: C2GetRedirectorRuleMessage,
+) -> C2GetRedirectorRuleMessageResponse {
     C2GetRedirectorRuleMessageResponse {
         success: false,
         error: String::new(),
