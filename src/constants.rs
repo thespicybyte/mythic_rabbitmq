@@ -30,3 +30,36 @@ pub const MYTHIC_RPC_C2_UPDATE_STATUS: &str = "mythic_rpc_c2_update_status";
 pub fn get_routing_key(c2_name: &str, base_key: &str) -> String {
     format!("{}_{}", c2_name, base_key)
 }
+
+// ---------------------------------------------------------------------------
+// PT (Payload Type / Agent) routing keys
+// ---------------------------------------------------------------------------
+
+// PT sync
+pub const PT_SYNC_ROUTING_KEY: &str = "pt_sync";
+pub const PT_RPC_RESYNC_ROUTING_KEY: &str = "pt_rpc_resync";
+
+// PT inbound queues (prefixed with {pt_name}_ at runtime)
+pub const PT_PAYLOAD_BUILD_ROUTING_KEY: &str = "payload_build";
+pub const PT_ON_NEW_CALLBACK_ROUTING_KEY: &str = "pt_on_new_callback";
+pub const PT_CHECK_IF_CALLBACKS_ALIVE_ROUTING_KEY: &str = "pt_check_if_callbacks_alive";
+pub const PT_TASK_CREATE_TASKING_ROUTING_KEY: &str = "pt_task_create_tasking";
+pub const PT_TASK_OPSEC_PRE_ROUTING_KEY: &str = "pt_task_opsec_pre_check";
+pub const PT_TASK_OPSEC_POST_ROUTING_KEY: &str = "pt_task_opsec_post_check";
+pub const PT_TASK_PROCESS_RESPONSE_ROUTING_KEY: &str = "pt_task_process_response";
+pub const PT_TASK_COMPLETION_FUNCTION_ROUTING_KEY: &str = "pt_task_completion_function";
+pub const PT_RPC_COMMAND_DYNAMIC_QUERY_ROUTING_KEY: &str = "pt_command_dynamic_query_function";
+pub const PT_RPC_BUILD_PARAM_DYNAMIC_QUERY_ROUTING_KEY: &str =
+    "pt_build_parameter_dynamic_query_function";
+pub const PT_RPC_COMMAND_TYPEDARRAY_PARSE_ROUTING_KEY: &str = "pt_command_typedarray_parse";
+pub const PT_RPC_COMMAND_HELP_ROUTING_KEY: &str = "pt_command_help_function";
+
+// PT outbound (publish to Mythic, not namespaced with pt_name)
+pub const PT_BUILD_RESPONSE_ROUTING_KEY: &str = "pt_build_response";
+pub const PT_TASK_CREATE_TASKING_RESPONSE_ROUTING_KEY: &str = "pt_task_create_tasking_response";
+pub const PT_TASK_OPSEC_PRE_RESPONSE_ROUTING_KEY: &str = "pt_task_opsec_pre_check_response";
+pub const PT_TASK_OPSEC_POST_RESPONSE_ROUTING_KEY: &str = "pt_task_opsec_post_check_response";
+pub const PT_TASK_PROCESS_RESPONSE_RESPONSE_ROUTING_KEY: &str =
+    "pt_task_process_response_response";
+pub const PT_TASK_COMPLETION_RESPONSE_ROUTING_KEY: &str = "pt_task_completion_function_response";
+pub const PT_ON_NEW_CALLBACK_RESPONSE_ROUTING_KEY: &str = "pt_on_new_callback_response";
