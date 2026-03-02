@@ -23,6 +23,7 @@ pub const C2_RPC_RESYNC_ROUTING_KEY: &str = "c2_rpc_resync";
 
 // Mythic RPC - called by the container TO Mythic (not namespaced with c2 name)
 pub const MYTHIC_RPC_C2_UPDATE_STATUS: &str = "mythic_rpc_c2_update_status";
+pub const MYTHIC_RPC_PAYLOAD_UPDATE_BUILD_STEP: &str = "mythic_rpc_payload_update_build_step";
 
 /// Construct the namespaced routing key for a given C2 profile and base key.
 /// e.g. get_routing_key("reverse_tcp", C2_RPC_CONFIG_CHECK_ROUTING_KEY)

@@ -1,4 +1,4 @@
 pub mod c2_profile;
-pub mod agent;
+pub mod payload_type;
 pub use c2_profile::*;
-pub use agent::*;
+pub use payload_type::*;

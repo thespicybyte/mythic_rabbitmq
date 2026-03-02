@@ -1,6 +1,7 @@
 // RabbitMQ connection management.
 // Mirrors the connection handling in rabbitmq/utils.go from MythicMeta/MythicContainer.
 
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use lapin::{
@@ -43,6 +44,25 @@ impl RabbitMQConfig {
             self.username, self.password, self.host, self.port, self.vhost,
         )
     }
+}
+
+// ---------------------------------------------------------------------------
+// Global config — mirrors Go's package-level RabbitMQConnection variable.
+// Set once by MythicAgentContainer::start_and_run_forever; read by all
+// mythicrpc send functions so users never touch connections directly.
+// ---------------------------------------------------------------------------
+
+static GLOBAL_CONFIG: OnceLock<RabbitMQConfig> = OnceLock::new();
+
+/// Store the RabbitMQ config globally. Called automatically by the container
+/// on startup; do not call this yourself.
+pub fn set_global_config(config: RabbitMQConfig) {
+    GLOBAL_CONFIG.set(config).ok();
+}
+
+/// Retrieve the global config. Returns `None` before the container starts.
+pub fn global_config() -> Option<&'static RabbitMQConfig> {
+    GLOBAL_CONFIG.get()
 }
 
 /// Attempt to connect to RabbitMQ, retrying forever with a delay between attempts.

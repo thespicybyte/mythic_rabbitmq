@@ -15,6 +15,7 @@
 //   5. Acks the delivery.
 //   6. On any error, reconnects and retries.
 
+use std::future::Future;
 use std::time::Duration;
 
 use lapin::{
@@ -193,6 +194,159 @@ where
 
     Err(MythicError::RpcError(format!(
         "PT consumer stream for '{}' ended unexpectedly",
+        inbound_routing_key
+    )))
+}
+
+/// Like [`spawn_pt_receiver`] but for async handlers — used for the build
+/// handler so users can `await` mythicrpc send calls inside their build fn.
+pub fn spawn_pt_receiver_async<Req, Resp, Fut, F>(
+    config: RabbitMQConfig,
+    inbound_routing_key: String,
+    response_routing_key: &'static str,
+    handler: F,
+) where
+    Req: DeserializeOwned + Send + 'static,
+    Resp: Serialize + Send + 'static,
+    Fut: Future<Output = Resp> + Send + 'static,
+    F: Fn(Req) -> Fut + Send + Sync + 'static,
+{
+    tokio::spawn(async move {
+        loop {
+            let conn = connect_with_retry(&config).await;
+            if let Err(e) = run_pt_receiver_loop_async::<Req, Resp, Fut, F>(
+                &conn,
+                &inbound_routing_key,
+                response_routing_key,
+                &handler,
+            )
+            .await
+            {
+                error!(
+                    "Async PT receiver for '{}' encountered an error: {}. Reconnecting in {}s...",
+                    inbound_routing_key, e, RETRY_CONNECT_DELAY_SECS
+                );
+                tokio::time::sleep(Duration::from_secs(RETRY_CONNECT_DELAY_SECS)).await;
+            }
+        }
+    });
+}
+
+async fn run_pt_receiver_loop_async<Req, Resp, Fut, F>(
+    conn: &Connection,
+    inbound_routing_key: &str,
+    response_routing_key: &str,
+    handler: &F,
+) -> Result<()>
+where
+    Req: DeserializeOwned,
+    Resp: Serialize,
+    Fut: Future<Output = Resp>,
+    F: Fn(Req) -> Fut,
+{
+    let channel = open_channel(conn).await?;
+    declare_mythic_exchange(&channel, MYTHIC_EXCHANGE).await?;
+    declare_and_bind_queue(&channel, MYTHIC_EXCHANGE, inbound_routing_key).await?;
+
+    info!("Async PT receiver ready on queue '{}'", inbound_routing_key);
+
+    let mut consumer = channel
+        .basic_consume(
+            inbound_routing_key,
+            &format!("{}_consumer", inbound_routing_key),
+            BasicConsumeOptions {
+                no_ack: false,
+                ..Default::default()
+            },
+            FieldTable::default(),
+        )
+        .await
+        .map_err(MythicError::from)?;
+
+    while let Some(delivery_result) = futures_lite::StreamExt::next(&mut consumer).await {
+        let delivery = match delivery_result {
+            Ok(d) => d,
+            Err(e) => {
+                error!(
+                    "Error receiving delivery on '{}': {}",
+                    inbound_routing_key, e
+                );
+                return Err(MythicError::from(e));
+            }
+        };
+
+        debug!("Received async PT message on '{}'", inbound_routing_key);
+
+        let request: Req = match serde_json::from_slice(&delivery.data) {
+            Ok(r) => r,
+            Err(e) => {
+                warn!(
+                    "Failed to deserialize request on '{}': {}",
+                    inbound_routing_key, e
+                );
+                let _ = delivery
+                    .nack(BasicNackOptions {
+                        requeue: false,
+                        ..Default::default()
+                    })
+                    .await;
+                continue;
+            }
+        };
+
+        let response = handler(request).await;
+
+        let response_bytes = match serde_json::to_vec(&response) {
+            Ok(b) => b,
+            Err(e) => {
+                error!(
+                    "Failed to serialize response on '{}': {}",
+                    inbound_routing_key, e
+                );
+                let _ = delivery
+                    .nack(BasicNackOptions {
+                        requeue: false,
+                        ..Default::default()
+                    })
+                    .await;
+                continue;
+            }
+        };
+
+        if let Err(e) = channel
+            .basic_publish(
+                MYTHIC_EXCHANGE,
+                response_routing_key,
+                BasicPublishOptions::default(),
+                &response_bytes,
+                BasicProperties::default().with_content_type("application/json".into()),
+            )
+            .await
+        {
+            error!(
+                "Failed to publish async PT response on '{}': {}",
+                response_routing_key, e
+            );
+            let _ = delivery
+                .nack(BasicNackOptions {
+                    requeue: true,
+                    ..Default::default()
+                })
+                .await;
+            continue;
+        }
+
+        if let Err(e) = delivery.ack(BasicAckOptions::default()).await {
+            error!(
+                "Failed to ack delivery on '{}': {}",
+                inbound_routing_key, e
+            );
+            return Err(MythicError::from(e));
+        }
+    }
+
+    Err(MythicError::RpcError(format!(
+        "Async PT consumer stream for '{}' ended unexpectedly",
         inbound_routing_key
     )))
 }
