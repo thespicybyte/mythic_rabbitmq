@@ -72,7 +72,7 @@ pub use agent_container::{
     CreateTaskingHandler, MythicAgentContainer, MythicAgentContainerBuilder,
     OnNewCallbackHandler, OpsecPostHandler, OpsecPreHandler, ProcessResponseHandler,
 };
-pub use agent_sync::send_payload_update_build_step;
+pub use agent_sync::{send_payload_update_build_step, upload_payload_file};
 pub use structs::{
     AgentType, BuildParameter, BuildStep, Command, CommandAttribute, CommandParameter,
     MessageFormat, MythicRPCPayloadUpdateBuildStepMessage,

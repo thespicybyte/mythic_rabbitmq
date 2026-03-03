@@ -119,6 +119,40 @@ async fn try_send_pt_rpc(
     }
 }
 
+/// Upload payload bytes to Mythic via the `/direct/upload/{agent_file_id}` endpoint.
+///
+/// Call this from your async build handler after compiling the payload, passing
+/// the `payload_file_uuid` from the `PayloadBuildMessage`. Mythic pre-allocates
+/// a `filemeta` record with this UUID and expects the container to write the
+/// bytes here; the `payload` field of `PayloadBuildResponse` is ignored by Mythic.
+pub async fn upload_payload_file(agent_file_id: &str, bytes: Vec<u8>) -> Result<()> {
+    let host = std::env::var("MYTHIC_SERVER_HOST").unwrap_or_else(|_| "mythic_server".to_string());
+    let port = std::env::var("MYTHIC_SERVER_PORT").unwrap_or_else(|_| "17443".to_string());
+    let url = format!("http://{}:{}/direct/upload/{}", host, port, agent_file_id);
+
+    let part = reqwest::multipart::Part::bytes(bytes)
+        .file_name("payload")
+        .mime_str("application/octet-stream")
+        .map_err(|e| MythicError::RpcError(format!("Failed to build multipart: {}", e)))?;
+    let form = reqwest::multipart::Form::new().part("file", part);
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(&url)
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|e| MythicError::RpcError(format!("Payload upload HTTP request failed: {}", e)))?;
+
+    if !resp.status().is_success() {
+        return Err(MythicError::RpcError(format!(
+            "Payload upload returned status {}",
+            resp.status()
+        )));
+    }
+    Ok(())
+}
+
 /// Build a PT sync message, stamping in the container version.
 pub fn build_pt_sync_message(
     payload_type: PayloadType,

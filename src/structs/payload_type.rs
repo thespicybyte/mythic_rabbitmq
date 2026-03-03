@@ -756,6 +756,8 @@ pub struct PayloadBuildMessage {
     pub uuid: String,
     #[serde(rename = "all_c2_info", default)]
     pub all_c2_info: Vec<PayloadBuildC2ProfileMessage>,
+    #[serde(rename = "payload_file_uuid", default)]
+    pub payload_file_uuid: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -795,8 +797,8 @@ pub struct PayloadBuildResponse {
     pub success: bool,
     #[serde(rename = "error", default)]
     pub error: String,
-    #[serde(rename = "payload", default, with = "opt_base64")]
-    pub payload: Option<Vec<u8>>,
+    #[serde(rename = "agent_file_id", default)]
+    pub agent_file_id: Option<String>,
     #[serde(rename = "status", default)]
     pub status: String,
     #[serde(rename = "build_message", default)]
