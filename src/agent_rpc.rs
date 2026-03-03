@@ -276,6 +276,7 @@ where
         };
 
         debug!("Received async PT message on '{}'", inbound_routing_key);
+        debug!(raw = %String::from_utf8_lossy(&delivery.data), "raw PT message bytes");
 
         let request: Req = match serde_json::from_slice(&delivery.data) {
             Ok(r) => r,

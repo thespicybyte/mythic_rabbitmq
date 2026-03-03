@@ -721,7 +721,7 @@ pub struct PayloadBuildMessage {
     pub commands: Vec<String>,
     #[serde(rename = "build_parameters", default)]
     pub build_parameters: BuildParameters,
-    #[serde(rename = "c2_profiles", default)]
+    #[serde(rename = "c2profiles", default)]
     pub c2_profiles: Vec<PayloadBuildC2Profile>,
     #[serde(rename = "wrapped_payload", default)]
     pub wrapped_payload: String,
@@ -737,6 +737,10 @@ pub struct PayloadBuildMessage {
 pub struct PayloadBuildC2Profile {
     #[serde(rename = "name", default)]
     pub name: String,
+    #[serde(rename = "id", default)]
+    pub id: u64,
+    #[serde(rename = "is_p2p", default)]
+    pub is_p2p: bool,
     #[serde(rename = "parameters", default)]
     pub parameters: HashMap<String, Value>,
     #[serde(rename = "crypto_params", default)]
