@@ -24,7 +24,7 @@ use lapin::{
     types::FieldTable,
 };
 use serde::{Serialize, de::DeserializeOwned};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::connection::{
     RabbitMQConfig, connect_with_retry, declare_and_bind_queue, declare_mythic_exchange,
@@ -35,7 +35,7 @@ use crate::constants::{
     get_routing_key,
 };
 use crate::error::{MythicError, Result};
-use crate::structs::{Command, PayloadType, PTRPCReSyncMessage, PTRPCReSyncMessageResponse};
+use crate::structs::{Command, PTRPCReSyncMessage, PTRPCReSyncMessageResponse, PayloadType};
 
 /// Spawn a long-running tokio task that:
 ///   - Listens on `inbound_routing_key` for requests
@@ -117,7 +117,7 @@ where
             }
         };
 
-        debug!("Received PT message on '{}'", inbound_routing_key);
+        trace!("Received PT message on '{}'", inbound_routing_key);
 
         // Deserialize request
         let request: Req = match serde_json::from_slice(&delivery.data) {
@@ -184,10 +184,7 @@ where
 
         // Ack after successful response send
         if let Err(e) = delivery.ack(BasicAckOptions::default()).await {
-            error!(
-                "Failed to ack delivery on '{}': {}",
-                inbound_routing_key, e
-            );
+            error!("Failed to ack delivery on '{}': {}", inbound_routing_key, e);
             return Err(MythicError::from(e));
         }
     }
@@ -338,10 +335,7 @@ where
         }
 
         if let Err(e) = delivery.ack(BasicAckOptions::default()).await {
-            error!(
-                "Failed to ack delivery on '{}': {}",
-                inbound_routing_key, e
-            );
+            error!("Failed to ack delivery on '{}': {}", inbound_routing_key, e);
             return Err(MythicError::from(e));
         }
     }
@@ -427,8 +421,8 @@ async fn run_pt_resync_loop(
             Err(e) => (false, e.to_string()),
         };
 
-        let response_bytes = serde_json::to_vec(&PTRPCReSyncMessageResponse { success, error })
-            .unwrap_or_default();
+        let response_bytes =
+            serde_json::to_vec(&PTRPCReSyncMessageResponse { success, error }).unwrap_or_default();
 
         // PT resync response goes to the fixed sync routing key reply pattern
         // (reply_to if present, otherwise drop - Go library uses reply_to here)
