@@ -27,7 +27,8 @@ impl Environment {
             Ok(port_str) => port_str.parse::<u16>().unwrap_or(RABBITMQ_PORT),
             Err(_) => RABBITMQ_PORT,
         };
-        let rabbitmq_password = std::env::var("RABBITMQ_PASSWORD").unwrap();
+        let rabbitmq_password =
+            std::env::var("RABBITMQ_PASSWORD").unwrap_or_else(|_| "".to_string());
         let rabbitmq_vhost =
             std::env::var("RABBITMQ_VHOST").unwrap_or_else(|_| RABBITMQ_VHOST.to_string());
         let rabbitmq_user =
