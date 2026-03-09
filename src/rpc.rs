@@ -434,8 +434,8 @@ pub async fn launch_server(
     match Command::new(&abs_bin)
         .current_dir(&work_dir)
         .envs(std::env::vars())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
         .spawn()
     {
         Ok(child) => {
